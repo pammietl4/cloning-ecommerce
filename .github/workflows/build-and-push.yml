@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    # 1. Checkout the code from the GitHub repository
+    # 1. Checkout the code from the repository
     - name: Checkout code
       uses: actions/checkout@v4
 
@@ -27,23 +27,43 @@ jobs:
         username: ${{ secrets.DOCKER_USERNAME }}
         password: ${{ secrets.DOCKER_PASSWORD }}
 
-    # 4. Initialize CodeQL for static code security analysis
+    # 4. Auto-detect source languages for CodeQL, clean and dynamic
+    - name: Auto-detect source languages
+      id: detect_langs
+      run: |
+        langs=()
+        if ls **/*.js > /dev/null 2>&1; then langs+=("javascript"); fi
+        if ls **/*.py > /dev/null 2>&1; then langs+=("python"); fi
+        if ls **/*.go > /dev/null 2>&1; then langs+=("go"); fi
+        if ls **/*.java > /dev/null 2>&1; then langs+=("java"); fi
+        # Add more language detection lines as per your stack
+        if [ ${#langs[@]} -gt 0 ]; then
+          echo "Detected languages: ${langs[@]}"
+          echo "langs=${langs[*]}" >> $GITHUB_OUTPUT
+        else
+          echo "No supported languages detected"
+          echo "langs=" >> $GITHUB_OUTPUT
+        fi
+
+    # 5. Initialize CodeQL only if languages were detected
     - name: Initialize CodeQL
+      if: steps.detect_langs.outputs.langs != ''
       uses: github/codeql-action/init@v2
       with:
-        languages: python, javascript, go, java  # Adjust languages based on your microservices
+        languages: ${{ steps.detect_langs.outputs.langs }}
 
-    # 5. Run CodeQL analysis for vulnerabilities and code quality
+    # 6. Run CodeQL Analysis if initialization was done
     - name: Run CodeQL Analysis
+      if: steps.detect_langs.outputs.langs != ''
       uses: github/codeql-action/analyze@v2
 
-    # 6. Detect changed microservices, then build, scan, and push images accordingly
+    # 7. Build, scan, and push changed microservice images only
     - name: Build, Scan, and Push Changed Images
       run: |
         # Microservices to manage
         services=("user-service" "product-service" "cart-service" "order-service" "payment-service")
 
-        # Detect changes based on the workflow trigger type
+        # Detect changes based on workflow trigger type
         if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
           git fetch origin ${{ github.base_ref }}
           CHANGED=$(git diff --name-only origin/${{ github.base_ref }}...${{ github.sha }})
@@ -52,7 +72,7 @@ jobs:
           CHANGED=$(git diff --name-only ${{ github.sha }}^ ${{ github.sha }})
         fi
 
-        # Set the version tag using the GitHub Actions run number
+        # Set the version tag using GitHub Actions run number
         VERSION="v1.${{ github.run_number }}"
         echo "🔄 Starting build process... Version: $VERSION"
 
@@ -81,7 +101,7 @@ jobs:
         done
 
         echo "🎉 All relevant microservices have been processed"
-      # Steps:
+      # This block:
       # - Finds changed microservice folders only
-      # - Builds, scans, and pushes only what is required
-      # - Keeps the output clean and easy to track
+      # - Builds, scans with Trivy, and pushes images
+      # - Keeps output clean and readable
