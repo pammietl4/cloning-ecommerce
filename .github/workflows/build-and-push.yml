@@ -17,22 +17,22 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    # 1. Checkout the code from the repository
+    # 1. Checkout your repository code
     - name: Checkout code
       uses: actions/checkout@v4
 
-    # 2. Set up Docker Buildx for advanced image builds
+    # 2. Set up Docker Buildx for multi-platform builds
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
 
-    # 3. Login to Docker Hub using secrets for secure authentication
+    # 3. Log in to Docker Hub securely
     - name: Log in to Docker Hub
       uses: docker/login-action@v3
       with:
         username: ${{ secrets.DOCKER_USERNAME }}
         password: ${{ secrets.DOCKER_PASSWORD }}
 
-    # 4. Auto-detect source languages for CodeQL
+    # 4. Auto-detect languages present for code security scan
     - name: Auto-detect source languages
       id: detect_langs
       run: |
@@ -43,6 +43,7 @@ jobs:
         if ls **/*.java > /dev/null 2>&1; then langs+=("java"); fi
         if ls **/*.cs > /dev/null 2>&1; then langs+=("csharp"); fi
         if ls **/*.cpp **/*.c **/*.cc **/*.cxx > /dev/null 2>&1; then langs+=("cpp"); fi
+        # Add more language detection as needed
         if [ ${#langs[@]} -gt 0 ]; then
           echo "Detected languages: ${langs[@]}"
           echo "langs=${langs[*]}" >> $GITHUB_OUTPUT
@@ -51,22 +52,32 @@ jobs:
           echo "langs=" >> $GITHUB_OUTPUT
         fi
 
-    # 5. Initialize CodeQL if any supported language is detected
+    # 5. Initialize CodeQL only for languages present
     - name: Initialize CodeQL
       if: steps.detect_langs.outputs.langs != ''
       uses: github/codeql-action/init@v3
       with:
         languages: ${{ steps.detect_langs.outputs.langs }}
 
-    # 6. Run CodeQL Analysis if initialization was done
+    # 6. Run CodeQL Analysis for static code security
     - name: Run CodeQL Analysis
       if: steps.detect_langs.outputs.langs != ''
       uses: github/codeql-action/analyze@v3
 
-    # 7. Build, scan, and push changed microservice images
+    # 7. Build, scan, and push Docker images for changed services with complete summary
     - name: Build, Scan, and Push Changed Images
       run: |
+        # List of microservices to manage
         services=("user-service" "product-service" "cart-service" "order-service" "payment-service")
+        
+        # Arrays to track status of each service
+        built=()
+        scanned=()
+        pushed=()
+        skipped=()
+        failed=()
+
+        # Detect changed services based on trigger type
         if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
           git fetch origin ${{ github.base_ref }}
           CHANGED=$(git diff --name-only origin/${{ github.base_ref }}...${{ github.sha }})
@@ -74,29 +85,81 @@ jobs:
           git fetch --prune --unshallow || true
           CHANGED=$(git diff --name-only ${{ github.sha }}^ ${{ github.sha }})
         fi
+
+        # Set version using GitHub Actions run number
         VERSION="v1.${{ github.run_number }}"
         echo "🔄 Starting build process... Version: $VERSION"
+
+        # Process each microservice
         for service in "${services[@]}"; do
+          # Check if service has changes
           if echo "$CHANGED" | grep "^$service/" > /dev/null; then
             if [ -d "$service" ]; then
               echo "🚀 Building Docker image for $service ..."
-              docker build -t ${{ secrets.DOCKER_USERNAME }}/$service:latest -t ${{ secrets.DOCKER_USERNAME }}/$service:$VERSION ./$service
+              
+              # Build the Docker image
+              if docker build -t ${{ secrets.DOCKER_USERNAME }}/$service:latest -t ${{ secrets.DOCKER_USERNAME }}/$service:$VERSION ./$service; then
+                built+=("$service")
+                echo "✅ Build successful for $service"
+              else
+                failed+=("$service")
+                echo "❌ Build FAILED for $service"
+                continue
+              fi
 
-              echo "🔍 Scanning Docker image with Trivy ..."
-              docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+              echo "🔍 Scanning Docker image with Trivy for vulnerabilities ..."
+              
+              # Scan with Trivy for HIGH/CRITICAL vulnerabilities
+              if docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
                 aquasec/trivy:latest image --exit-code 1 --severity HIGH,CRITICAL \
-                ${{ secrets.DOCKER_USERNAME }}/$service:latest
+                ${{ secrets.DOCKER_USERNAME }}/$service:latest; then
+                echo "🟢 Trivy scan PASSED: $service image has NO high/critical vulnerabilities"
+                scanned+=("$service")
+              else
+                failed+=("$service")
+                echo "❌ Trivy scan FAILED for $service - vulnerabilities found, NOT pushing"
+                continue
+              fi
 
-              echo "📤 Pushing Docker image to Docker Hub ..."
-              docker push ${{ secrets.DOCKER_USERNAME }}/$service:latest
-              docker push ${{ secrets.DOCKER_USERNAME }}/$service:$VERSION
+              echo "📤 Pushing Docker images to Docker Hub ..."
+              
+              # Push both latest and versioned tags
+              if docker push ${{ secrets.DOCKER_USERNAME }}/$service:latest \
+                && docker push ${{ secrets.DOCKER_USERNAME }}/$service:$VERSION; then
+                pushed+=("$service")
+                echo "✅ Push successful for $service"
+              else
+                failed+=("$service")
+                echo "❌ Push FAILED for $service"
+              fi
 
-              echo "✅ $service build, scan & push completed"
+              echo "✅ $service build, scan & push completed successfully"
             else
+              skipped+=("$service")
               echo "⚠️ Skipping $service — folder not found"
             fi
           else
+            skipped+=("$service")
             echo "⏭️ Skipping $service — no changes detected"
           fi
         done
-        echo "🎉 All relevant microservices have been processed"
+
+        # Final comprehensive summary
+        echo ""
+        echo "================ PIPELINE SUMMARY ================"
+        echo "Version: $VERSION"
+        echo "Trigger: $GITHUB_EVENT_NAME"
+        [ ${#built[@]} -gt 0 ] && echo "✅ Built:     ${built[*]}"
+        [ ${#scanned[@]} -gt 0 ] && echo "🔍 Scanned:   ${scanned[*]}"
+        [ ${#pushed[@]} -gt 0 ] && echo "📤 Pushed:    ${pushed[*]}"
+        [ ${#skipped[@]} -gt 0 ] && echo "⏭️ Skipped:   ${skipped[*]}"
+        [ ${#failed[@]} -gt 0 ] && echo "❌ Failed:    ${failed[*]}"
+        echo "================================================="
+        
+        # Exit with error if any service failed
+        if [ ${#failed[@]} -gt 0 ]; then
+          echo "❌ Pipeline completed with failures"
+          exit 1
+        else
+          echo "🎉 Pipeline completed successfully"
+        fi
