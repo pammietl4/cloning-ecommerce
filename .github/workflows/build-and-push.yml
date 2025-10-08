@@ -7,6 +7,11 @@ on:
     branches: ["master"]
   workflow_dispatch:
 
+permissions:
+  actions: read
+  contents: read
+  security-events: write
+
 jobs:
   build_scan:
     runs-on: ubuntu-latest
@@ -32,10 +37,12 @@ jobs:
       id: detect_langs
       run: |
         langs=()
-        if ls **/*.js > /dev/null 2>&1; then langs+=("javascript"); fi
+        if ls **/*.js **/*.jsx **/*.ts **/*.tsx > /dev/null 2>&1; then langs+=("javascript"); fi
         if ls **/*.py > /dev/null 2>&1; then langs+=("python"); fi
         if ls **/*.go > /dev/null 2>&1; then langs+=("go"); fi
         if ls **/*.java > /dev/null 2>&1; then langs+=("java"); fi
+        if ls **/*.cs > /dev/null 2>&1; then langs+=("csharp"); fi
+        if ls **/*.cpp **/*.c **/*.cc **/*.cxx > /dev/null 2>&1; then langs+=("cpp"); fi
         # Add more language detection lines as per your stack
         if [ ${#langs[@]} -gt 0 ]; then
           echo "Detected languages: ${langs[@]}"
@@ -45,17 +52,17 @@ jobs:
           echo "langs=" >> $GITHUB_OUTPUT
         fi
 
-    # 5. Initialize CodeQL only if languages were detected
+    # 5. Initialize CodeQL only if languages were detected (using latest v3)
     - name: Initialize CodeQL
       if: steps.detect_langs.outputs.langs != ''
-      uses: github/codeql-action/init@v2
+      uses: github/codeql-action/init@v3
       with:
         languages: ${{ steps.detect_langs.outputs.langs }}
 
-    # 6. Run CodeQL Analysis if initialization was done
+    # 6. Run CodeQL Analysis if initialization was done (using latest v3)
     - name: Run CodeQL Analysis
       if: steps.detect_langs.outputs.langs != ''
-      uses: github/codeql-action/analyze@v2
+      uses: github/codeql-action/analyze@v3
 
     # 7. Build, scan, and push changed microservice images only
     - name: Build, Scan, and Push Changed Images
@@ -104,4 +111,4 @@ jobs:
       # This block:
       # - Finds changed microservice folders only
       # - Builds, scans with Trivy, and pushes images
-      # - Keeps output clean and readable
+      # - Keeps output
