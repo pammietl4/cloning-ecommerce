@@ -24,30 +24,43 @@ jobs:
         username: ${{ secrets.DOCKER_USERNAME }}
         password: ${{ secrets.DOCKER_PASSWORD }}
 
-    - name: Build and Push Services
+    - name: Detect changed microservices and build/push only if changed
       run: |
-        # Declare list of microservices
+        # List of microservices
         services=("user-service" "product-service" "cart-service" "order-service" "payment-service")
 
-        # Auto version tag using GitHub run number
-        VERSION="v1.${{ github.run_number }}"
+        # Get list of changed files (compare to previous commit or PR base)
+        if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+          # For PR, compare against base commit
+          git fetch origin ${{ github.base_ref }}
+          CHANGED=$(git diff --name-only origin/${{ github.base_ref }}...${{ github.sha }})
+        else
+          # For push/workflow_dispatch, compare to previous commit
+          git fetch --prune --unshallow || true  # Ensure full history
+          CHANGED=$(git diff --name-only ${{ github.sha }}^ ${{ github.sha }})
+        fi
 
-        echo "🔄 Starting build process... Version: $VERSION"
+        VERSION="v1.${{ github.run_number }}"
+        echo "🔄 Build process... Version: $VERSION"
 
         for service in "${services[@]}"; do
-          if [ -d "$service" ]; then
-            echo "🚀 Building $service ..."
-            
-            docker build -t ${{ secrets.DOCKER_USERNAME }}/$service:latest -t ${{ secrets.DOCKER_USERNAME }}/$service:$VERSION ./$service
+          # Check if any files in the service folder were changed
+          if echo "$CHANGED" | grep "^$service/" > /dev/null; then
+            if [ -d "$service" ]; then
+              echo "🚀 Building $service ..."
+              docker build -t ${{ secrets.DOCKER_USERNAME }}/$service:latest -t ${{ secrets.DOCKER_USERNAME }}/$service:$VERSION ./$service
 
-            echo "📤 Pushing $service ..."
-            docker push ${{ secrets.DOCKER_USERNAME }}/$service:latest
-            docker push ${{ secrets.DOCKER_USERNAME }}/$service:$VERSION
+              echo "📤 Pushing $service ..."
+              docker push ${{ secrets.DOCKER_USERNAME }}/$service:latest
+              docker push ${{ secrets.DOCKER_USERNAME }}/$service:$VERSION
 
-            echo "✅ $service build & push completed successfully"
+              echo "✅ $service build & push completed successfully"
+            else
+              echo "⚠️ Skipping $service — folder not found"
+            fi
           else
-            echo "⚠️ Skipping $service — folder not found"
+            echo "⏭️ Skipping $service — no changes detected"
           fi
         done
 
-        echo "🎉 All available services have been processed."
+        echo "🎉 All changed services have been processed."
