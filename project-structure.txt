@@ -1,0 +1,23 @@
+micro-amazon/
+├── user-service/
+│   ├── main.go / app.py
+│   ├── Dockerfile
+│   └── ...
+├── product-service/
+│   ├── main.go / app.py
+│   └── ...
+├── cart-service/
+│   ├── main.go / app.py
+│   └── ...
+├── order-service/
+│   ├── main.go / app.py
+│   └── ...
+├── payment-service/
+│   ├── main.go / app.py
+│   └── ...
+├── docker-compose.yaml
+├── k8s/
+│   ├── user-deployment.yaml
+│   ├── product-deployment.yaml
+│   └── ...
+└── README.md
