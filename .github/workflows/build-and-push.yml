@@ -32,7 +32,7 @@ jobs:
         username: ${{ secrets.DOCKER_USERNAME }}
         password: ${{ secrets.DOCKER_PASSWORD }}
 
-    # 4. Auto-detect source languages for CodeQL, clean and dynamic
+    # 4. Auto-detect source languages for CodeQL
     - name: Auto-detect source languages
       id: detect_langs
       run: |
@@ -43,7 +43,6 @@ jobs:
         if ls **/*.java > /dev/null 2>&1; then langs+=("java"); fi
         if ls **/*.cs > /dev/null 2>&1; then langs+=("csharp"); fi
         if ls **/*.cpp **/*.c **/*.cc **/*.cxx > /dev/null 2>&1; then langs+=("cpp"); fi
-        # Add more language detection lines as per your stack
         if [ ${#langs[@]} -gt 0 ]; then
           echo "Detected languages: ${langs[@]}"
           echo "langs=${langs[*]}" >> $GITHUB_OUTPUT
@@ -52,25 +51,23 @@ jobs:
           echo "langs=" >> $GITHUB_OUTPUT
         fi
 
-    # 5. Initialize CodeQL only if languages were detected (using latest v3)
+    # 5. Initialize CodeQL if any supported language is detected
     - name: Initialize CodeQL
       if: steps.detect_langs.outputs.langs != ''
       uses: github/codeql-action/init@v3
       with:
         languages: ${{ steps.detect_langs.outputs.langs }}
 
-    # 6. Run CodeQL Analysis if initialization was done (using latest v3)
+    # 6. Run CodeQL Analysis if initialization was done
     - name: Run CodeQL Analysis
       if: steps.detect_langs.outputs.langs != ''
       uses: github/codeql-action/analyze@v3
 
-    # 7. Build, scan, and push changed microservice images only
-    - name: Build, Scan, and Push Changed Images
+    # 7. Detect changed services, build, push, and scan images
+    - name: Build, Push, and Prepare List of Changed Images
+      id: buildpush
       run: |
-        # Microservices to manage
         services=("user-service" "product-service" "cart-service" "order-service" "payment-service")
-
-        # Detect changes based on workflow trigger type
         if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
           git fetch origin ${{ github.base_ref }}
           CHANGED=$(git diff --name-only origin/${{ github.base_ref }}...${{ github.sha }})
@@ -78,27 +75,19 @@ jobs:
           git fetch --prune --unshallow || true
           CHANGED=$(git diff --name-only ${{ github.sha }}^ ${{ github.sha }})
         fi
-
-        # Set the version tag using GitHub Actions run number
         VERSION="v1.${{ github.run_number }}"
         echo "🔄 Starting build process... Version: $VERSION"
-
-        # Process each microservice
+        images=()
         for service in "${services[@]}"; do
-          # Build only if relevant files are changed
           if echo "$CHANGED" | grep "^$service/" > /dev/null; then
             if [ -d "$service" ]; then
               echo "🚀 Building Docker image for $service ..."
               docker build -t ${{ secrets.DOCKER_USERNAME }}/$service:latest -t ${{ secrets.DOCKER_USERNAME }}/$service:$VERSION ./$service
-
-              echo "🔍 Scanning built Docker image with Trivy ..."
-              docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:latest image ${{ secrets.DOCKER_USERNAME }}/$service:latest
-
               echo "📤 Pushing Docker image to Docker Hub ..."
               docker push ${{ secrets.DOCKER_USERNAME }}/$service:latest
               docker push ${{ secrets.DOCKER_USERNAME }}/$service:$VERSION
-
-              echo "✅ $service build, scan & push completed"
+              images+=("${{ secrets.DOCKER_USERNAME }}\/$service:latest")
+              echo "✅ $service build & push completed"
             else
               echo "⚠️ Skipping $service — folder not found"
             fi
@@ -106,9 +95,21 @@ jobs:
             echo "⏭️ Skipping $service — no changes detected"
           fi
         done
-
+        # Set output for downstream Trivy scan
+        echo "images=${images[*]}" >> $GITHUB_OUTPUT
+        echo "IMAGES=${images[*]}" >> $GITHUB_ENV
         echo "🎉 All relevant microservices have been processed"
-      # This block:
-      # - Finds changed microservice folders only
-      # - Builds, scans with Trivy, and pushes images
-      # - Keeps output
+
+    # 8. Matrix scan all images built/pushed with Trivy
+    - name: Scan all built Docker images with Trivy
+      if: steps.buildpush.outputs.images != ''
+      uses: aquasecurity/trivy-action@v0.22.0
+      with:
+        image-ref: ${{ matrix.image }}
+        format: 'table'
+        exit-code: '1'
+        ignore-unfixed: true
+        severity: 'CRITICAL,HIGH'
+      strategy:
+        matrix:
+          image: ${{ fromJson(env.IMAGES) }}
