@@ -26,7 +26,7 @@ jobs:
       with:
         projectBaseDir: .
         args: >
-          -Dsonar.projectKey=cloning-ecommerce
+          -Dsonar.projectKey=pammietl4_cloning-ecommerce
           -Dsonar.organization=pammietl4
           -Dsonar.branch.name=master
       env:
