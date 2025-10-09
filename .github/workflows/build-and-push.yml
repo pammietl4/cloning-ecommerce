@@ -39,7 +39,7 @@ jobs:
     #     login: ${{ secrets.SONARQUBE_TOKEN }}
     #     projectBaseDir: .
     #     args: >
-    #       -Dsonar.projectKey=cloning-ecommerce
+    #       -Dsonar.projectKey=pammietl4_cloning-ecommerce
     #       -Dsonar.organization=pammietl4
 
     - name: Set up Docker Buildx
