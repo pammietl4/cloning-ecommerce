@@ -17,29 +17,28 @@ jobs:
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v4 # latest as of 2025
 
-    # ---- SonarCloud Cloud Scan (ENABLED) ----
+    # ---- SonarCloud Scan (latest, recommended) ----
     - name: SonarCloud Scan
-      uses: sonarsource/sonarcloud-github-action@master
+      uses: sonarsource/sonarqube-scan-action@v5.0.0
       with:
         projectBaseDir: .
       env:
         SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
-    # ---- SonarQube Self-Hosted Scan (COMMENTED) ----
-    # - name: SonarQube Self-Hosted Scan
-    #   uses: sonarsource/sonarqube-scan-action@v1.2
+    # - name: SonarQube Self-Hosted Scan (only if needed; latest)
+    #   uses: sonarsource/sonarqube-scan-action@v5.0.0
     #   with:
     #     host: ${{ secrets.SONARQUBE_HOST }}
     #     login: ${{ secrets.SONARQUBE_TOKEN }}
     #     projectBaseDir: .
 
     - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v3
+      uses: docker/setup-buildx-action@v3 # latest as of 2025
 
     - name: Log in to Docker Hub
-      uses: docker/login-action@v3
+      uses: docker/login-action@v3 # latest as of 2025
       with:
         username: ${{ secrets.DOCKER_USERNAME }}
         password: ${{ secrets.DOCKER_PASSWORD }}
