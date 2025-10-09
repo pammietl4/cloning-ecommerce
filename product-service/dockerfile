@@ -2,13 +2,19 @@
 FROM python:3.11-slim AS build
 
 WORKDIR /product-service
+
 COPY requirements.txt .
+
+# Install build tools for dependencies (uvicorn[standard] sometimes needs these)
+RUN apt-get update && apt-get install -y --no-install-recommends gcc build-essential libffi-dev
+
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Stage 2: Runtime
 FROM python:3.11-slim
 
 WORKDIR /product-service
+
 COPY --from=build /usr/local/lib/python3.11 /usr/local/lib/python3.11
 COPY . .
 
