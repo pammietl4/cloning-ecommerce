@@ -1,23 +1,38 @@
-# Stage 1: Build
-FROM python:3.11-slim AS build
+# -------- Stage 1: Dependencies build --------
+FROM python:3.11-slim AS builder
 
-WORKDIR /product-service
+WORKDIR /app
 
-COPY requirements.txt .
-
-# Install build tools for dependencies (uvicorn[standard] sometimes needs these)
+# Install build tools only in this stage
 RUN apt-get update && apt-get install -y --no-install-recommends gcc build-essential libffi-dev
 
-RUN pip install --no-cache-dir -r requirements.txt
+# Copy only requirements.txt first for caching
+COPY requirements.txt .
 
-# Stage 2: Runtime
+# Install dependencies to a wheels directory to further reduce runtime image size
+RUN pip install --user --no-cache-dir --upgrade pip \
+ && pip install --user --no-cache-dir -r requirements.txt
+
+# -------- Stage 2: Minimal runtime --------
 FROM python:3.11-slim
 
-WORKDIR /product-service
+# Set up workdir for runtime
+WORKDIR /app
 
-COPY --from=build /usr/local/lib/python3.11 /usr/local/lib/python3.11
-COPY . .
+# Copy installed dependencies from builder (only site-packages, not pip or cache)
+COPY --from=builder /root/.local /root/.local
+
+# Use PATH so that /root/.local/bin is available
+ENV PATH=/root/.local/bin:$PATH
+
+# Copy application code only (use .dockerignore for test/docs)
+COPY main.py . # For Flask/entrypoint
+# COPY your other app code here as needed
+
+# Optionally, create & switch to a non-root user
+RUN adduser --disabled-password --gecos '' appuser
+USER appuser
 
 EXPOSE 8001
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8001"]
 
+CMD ["gunicorn", "main:app", "--bind", "0.0.0.0:8001", "--workers", "3"]
