@@ -1,38 +1,39 @@
-# -------- Stage 1: Dependencies build --------
+# -------- Stage 1: Build dependencies --------
 FROM python:3.11-slim AS builder
 
-WORKDIR /app
+WORKDIR /product-service
 
-# Install build tools only in this stage
+# Install build tools only for this build stage
 RUN apt-get update && apt-get install -y --no-install-recommends gcc build-essential libffi-dev
 
-# Copy only requirements.txt first for caching
-COPY requirements.txt .
-
-# Install dependencies to a wheels directory to further reduce runtime image size
+# Copy and install only dependencies first for caching
+COPY requirements.txt /product-service/
 RUN pip install --user --no-cache-dir --upgrade pip \
  && pip install --user --no-cache-dir -r requirements.txt
 
 # -------- Stage 2: Minimal runtime --------
 FROM python:3.11-slim
 
-# Set up workdir for runtime
-WORKDIR /app
+WORKDIR /product-service
 
-# Copy installed dependencies from builder (only site-packages, not pip or cache)
+# Copy only the installed wheels from builder
 COPY --from=builder /root/.local /root/.local
-
-# Use PATH so that /root/.local/bin is available
 ENV PATH=/root/.local/bin:$PATH
 
-# Copy application code only (use .dockerignore for test/docs)
-COPY main.py . # For Flask/entrypoint
-# COPY your other app code here as needed
+# Copy application code
+COPY main.py /product-service/
 
-# Optionally, create & switch to a non-root user
+# (Optional) Add your other app files here
+# COPY app/ /product-service/app/
+# COPY models.py /product-service/models.py
+# COPY utils.py /product-service/utils.py
+# etc.
+
+# (Recommended) Use non-root user for runtime security
 RUN adduser --disabled-password --gecos '' appuser
 USER appuser
 
 EXPOSE 8001
 
+# Gunicorn for Flask (best for production WSGI apps)
 CMD ["gunicorn", "main:app", "--bind", "0.0.0.0:8001", "--workers", "3"]
