@@ -18,7 +18,6 @@ COPY --from=builder /cart-service/node_modules ./node_modules
 COPY server.js .
 
 USER node
-
 EXPOSE 8001
 
 CMD ["node", "server.js"]
