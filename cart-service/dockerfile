@@ -4,10 +4,6 @@ FROM node:20-slim AS builder
 WORKDIR /cart-service
 
 COPY package.json .
-# If you have a package-lock.json, copy it for reproducible builds
-# COPY package-lock.json .
-
-# Only install production dependencies in builder stage
 RUN npm install --production
 
 # -------- Stage 2: Minimal runtime --------
@@ -15,10 +11,10 @@ FROM node:20-slim
 
 WORKDIR /cart-service
 
-# Copy just the node_modules from builder (not dev deps, not caches)
-COPY --from=builder /cart-service/node_modules ./node_modules
+# Patch CRITICAL zlib vulnerability (until base image updates)
+RUN apt-get update && apt-get install -y --only-upgrade zlib1g
 
-# Copy only app source code
+COPY --from=builder /cart-service/node_modules ./node_modules
 COPY server.js .
 
 USER node
