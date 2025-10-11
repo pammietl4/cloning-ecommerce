@@ -1,8 +1,10 @@
-# Build stage
-FROM golang:1.21-alpine AS build
+# Build stage (use latest secure Go version)
+FROM golang:1.24.6-alpine AS build
+
 WORKDIR /user-service
 COPY . .
-RUN go mod init user-service
+# For new Go projects, only use the following if go.mod does NOT already exist
+RUN [ -f go.mod ] || go mod init user-service
 RUN go build -o main .
 
 # Run stage
@@ -10,4 +12,4 @@ FROM alpine:latest
 WORKDIR /root/
 COPY --from=build /user-service/main .
 EXPOSE 8080
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080"]
+CMD ["./main"]
